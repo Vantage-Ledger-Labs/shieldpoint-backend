@@ -1,0 +1,100 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum VerificationStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  EXPIRED
+}
+
+model User {
+  id               String                  @id @default(uuid())
+  stellar_address  String                  @unique
+  created_at       DateTime                @default(now())
+  last_login       DateTime?
+
+  proofs                Proof[]
+  verificationRequests  VerificationRequest[]
+
+  @@map("users")
+}
+
+model Proof {
+  id                 String       @id @default(uuid())
+
+  user_id            String
+  proof_type         String
+
+  commitment_hash    String       @unique
+
+  threshold_amount   Decimal?     @db.Decimal(20, 8)
+
+  asset_code         String?
+
+  verified_at        DateTime?
+
+  transaction_hash   String?
+
+  expires_at         DateTime?
+
+  created_at         DateTime     @default(now())
+
+  user               User         @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  verificationRequests VerificationRequest[]
+
+  @@index([user_id])
+  @@index([commitment_hash])
+
+  @@map("proofs")
+}
+
+model VerificationRequest {
+  id              String              @id @default(uuid())
+
+  user_id         String
+  proof_id        String
+
+  status          VerificationStatus  @default(PENDING)
+
+  requested_at    DateTime            @default(now())
+
+  completed_at    DateTime?
+
+  user            User                @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  proof           Proof               @relation(fields: [proof_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([proof_id])
+  @@index([status])
+
+  @@map("verification_requests")
+}
+
+model RefreshToken {
+  id                String    @id @default(uuid())
+
+  user_id           String
+
+  hashed_token      String
+
+  expires_at        DateTime
+
+  revoked           Boolean   @default(false)
+
+  created_at        DateTime  @default(now())
+
+  user              User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+
+  @@map("refresh_tokens")
+}

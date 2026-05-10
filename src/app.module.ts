@@ -7,6 +7,7 @@ import { ProofsModule } from './modules/proofs/proofs.module';
 import { StellarModule } from './modules/stellar/stellar.module';
 import { HealthModule } from './modules/health/health.module';
 import { getTypeOrmConfig } from './config/typeorm.config';
+import { PrismaModule } from './database/prisma.module';
 
 @Module({
   imports: [
@@ -24,6 +25,8 @@ import { getTypeOrmConfig } from './config/typeorm.config';
     UsersModule,
     ProofsModule,
     StellarModule,
+    PrismaModule
+
   ],
 })
 export class AppModule {}
