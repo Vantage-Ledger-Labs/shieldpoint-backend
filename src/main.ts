@@ -4,10 +4,14 @@ import { ValidationPipe } from '@nestjs/common';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { ConfigService } from '@nestjs/config';
+import { PrismaService } from './database/prisma.service';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const configService = app.get(ConfigService);
+  const prismaService = app.get(PrismaService);
+
+  await prismaService.enableShutdownHooks(app);
 
   // Global prefix for API versioning
   app.setGlobalPrefix('api/v1');
