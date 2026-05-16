@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import * as StellarSdk from 'stellar-sdk';
 import { StellarService } from './stellar.service';
+import { MetricsService } from '../../common/metrics/metrics.service';
 import nock from 'nock';
 
 const horizonUrl = 'https://horizon-testnet.stellar.org';
@@ -18,8 +19,9 @@ describe('StellarService', () => {
       STELLAR_SIGNER_SECRET:
         'SA7H4YB47LVSOZWY4ZTOTR4R3WS5VVJZBYNQKPXETJAFNFVC67MPT73F',
     });
+    const metricsService = new MetricsService();
 
-    service = new StellarService(configService);
+    service = new StellarService(configService, metricsService);
   });
 
   afterEach(() => {
