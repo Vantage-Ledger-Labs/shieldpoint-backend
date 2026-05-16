@@ -1,15 +1,28 @@
-import { Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, FindOptionsWhere } from 'typeorm';
 import { Proof, ProofStatus } from './entities/proof.entity';
-import { GetProofsQueryDto, ProofDto, ProofsListResponseDto } from './dto/proofs.dto';
+import {
+  GetProofsQueryDto,
+  ProofDto,
+  ProofsListResponseDto,
+  VerifyProofResponseDto,
+} from './dto/proofs.dto';
 import { ConfigService } from '@nestjs/config';
+import { StellarService } from '../stellar/stellar.service';
+import * as StellarRpc from 'stellar-sdk/rpc';
 
 @Injectable()
 export class ProofsService {
   constructor(
     @InjectRepository(Proof)
     private proofRepository: Repository<Proof>,
+    private readonly stellarService: StellarService,
     private configService: ConfigService,
   ) {}
 
@@ -155,6 +168,68 @@ export class ProofsService {
 
     const updatedProof = await this.proofRepository.save(proof);
     return this.transformToDto(updatedProof);
+  }
+
+  async verifyProof(
+    proofId: string,
+    userId: string,
+  ): Promise<VerifyProofResponseDto> {
+    const proof = await this.proofRepository.findOne({
+      where: {
+        id: proofId,
+        userId,
+      },
+    });
+
+    if (!proof) {
+      throw new NotFoundException('Proof not found');
+    }
+
+    if (proof.status === ProofStatus.VERIFIED) {
+      throw new BadRequestException('Proof already verified');
+    }
+
+    if (proof.expiresAt && proof.expiresAt < new Date()) {
+      await this.updateProofFailed(proofId, 'Proof has expired');
+      throw new BadRequestException('Proof has expired');
+    }
+
+    if (!proof.proofData || !proof.proofData.trim()) {
+      await this.updateProofFailed(proofId, 'Invalid proof data');
+      throw new BadRequestException('Invalid proof data');
+    }
+
+    let proofPayload: unknown = proof.proofData;
+    try {
+      proofPayload = JSON.parse(proof.proofData);
+    } catch {
+      proofPayload = proof.proofData;
+    }
+
+    try {
+      const { hash } = await this.stellarService.invokeVerifierContract({ proof: proofPayload });
+      const transactionInfo = await this.stellarService.waitForTransactionConfirmation(hash, 5);
+
+      if (transactionInfo.status !== StellarRpc.Api.GetTransactionStatus.SUCCESS) {
+        await this.updateProofFailed(proofId, `Proof verification failed on chain: ${transactionInfo.status}`);
+        throw new InternalServerErrorException('Proof verification failed on chain');
+      }
+
+      const verifiedProof = await this.updateProofVerified(proofId, hash);
+      return {
+        success: true,
+        txHash: verifiedProof.transactionHash,
+        explorerLink: verifiedProof.explorer_link,
+      };
+    } catch (error) {
+      if (error instanceof BadRequestException || error instanceof NotFoundException) {
+        throw error;
+      }
+
+      const message = (error as any)?.message || 'Proof verification failed';
+      await this.updateProofFailed(proofId, message);
+      throw new InternalServerErrorException(message);
+    }
   }
 
   /**

@@ -79,6 +79,17 @@ export class ProofDto {
   verifiedAt: Date | null;
 }
 
+export class VerifyProofResponseDto {
+  @ApiProperty({ description: 'Verification success indicator', example: true })
+  success: boolean;
+
+  @ApiProperty({ description: 'Stellar transaction hash', example: 'abcdef123456' })
+  txHash: string;
+
+  @ApiProperty({ description: 'Explorer link for the transaction' })
+  explorerLink: string | null;
+}
+
 export class ProofsListResponseDto {
   @ApiProperty({ description: 'Array of proofs', type: [ProofDto] })
   data: ProofDto[];

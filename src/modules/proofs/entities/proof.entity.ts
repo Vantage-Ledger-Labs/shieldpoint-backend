@@ -16,10 +16,10 @@ export enum ProofStatus {
 }
 
 @Entity('proofs')
-@Index(['userId', 'createdAt'], { name: 'idx_proofs_user_created' })
-@Index(['userId'], { name: 'idx_proofs_user_id' })
-@Index(['status'], { name: 'idx_proofs_status' })
-@Index(['createdAt'], { name: 'idx_proofs_created_at' })
+@Index('idx_proofs_user_created', ['userId', 'createdAt'])
+@Index('idx_proofs_user_id', ['userId'])
+@Index('idx_proofs_status', ['status'])
+@Index('idx_proofs_created_at', ['createdAt'])
 export class Proof {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -54,4 +54,7 @@ export class Proof {
 
   @Column('timestamp', { nullable: true })
   verifiedAt: Date | null;
+
+  @Column('timestamp', { nullable: true })
+  expiresAt: Date | null;
 }
