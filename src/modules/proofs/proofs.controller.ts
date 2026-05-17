@@ -2,15 +2,18 @@ import {
   BadRequestException,
   Controller,
   Get,
-  Headers,
-  InternalServerErrorException,
-  NotFoundException,
-  Param,
   Post,
   Query,
+  Param,
+  Query,
+  Body,
+  HttpCode,
   UnauthorizedException,
 } from '@nestjs/common';
 import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
   ApiBearerAuth,
   ApiOperation,
   ApiParam,
@@ -24,6 +27,8 @@ import {
   ProofDto,
   ProofsListResponseDto,
   VerifyProofResponseDto,
+  GenerateBalanceProofDto,
+  GenerateProofResponseDto,
 } from './dto/proofs.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 
@@ -172,6 +177,18 @@ export class ProofsController {
   @ApiResponse({
     status: 400,
     description: 'Bad request - Proof already verified, expired, or invalid',
+  @Post('generate')
+  @ApiOperation({
+    summary: 'Generate a balance proof for authenticated user',
+    description:
+      'Create a zero-knowledge balance proof for the authenticated user if their Stellar account balance ' +
+      'meets the requested threshold. The endpoint is protected by JWT and returns proof metadata.',
+  })
+  @HttpCode(201)
+  @ApiResponse({
+    status: 201,
+    description: 'Proof generated successfully',
+    type: GenerateProofResponseDto,
   })
   @ApiResponse({
     status: 401,
@@ -198,6 +215,24 @@ export class ProofsController {
         throw error;
       }
       throw new BadRequestException('Unable to verify proof');
+    status: 400,
+    description: 'Bad request - Invalid proof generation request',
+  })
+  async generateProof(
+    @Body() body: GenerateBalanceProofDto,
+    @Headers('authorization') authHeader: string,
+  ): Promise<GenerateProofResponseDto> {
+    try {
+      const userId = this.jwtAuthGuard.extractUserId(authHeader);
+      return await this.proofsService.generateBalanceProof(userId, body.assetCode, body.threshold);
+    } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      throw new BadRequestException(error?.message || 'Invalid proof generation request');
     }
   }
 }

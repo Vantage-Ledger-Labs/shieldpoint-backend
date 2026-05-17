@@ -8,8 +8,14 @@ import { StellarModule } from '../stellar/stellar.module';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Proof]), StellarModule],
+import { UsersModule } from '../users/users.module';
+import { StellarModule } from '../stellar/stellar.module';
+import { ProofGenerationQueueService } from './proof-generation.queue';
+
+@Module({
+  imports: [TypeOrmModule.forFeature([Proof]), UsersModule, StellarModule],
   controllers: [ProofsController],
-  providers: [ProofsService, JwtAuthGuard],
+  providers: [ProofsService, JwtAuthGuard, ProofGenerationQueueService],
   exports: [ProofsService],
 })
 export class ProofsModule {}
