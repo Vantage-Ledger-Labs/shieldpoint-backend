@@ -8,6 +8,7 @@ import { StellarModule } from './modules/stellar/stellar.module';
 import { HealthModule } from './modules/health/health.module';
 import { getTypeOrmConfig } from './config/typeorm.config';
 import { PrismaModule } from './database/prisma.module';
+import { MetricsModule } from './common/metrics/metrics.module';
 
 @Module({
   imports: [
@@ -20,13 +21,13 @@ import { PrismaModule } from './database/prisma.module';
       inject: [ConfigService],
       useFactory: getTypeOrmConfig,
     }),
+    MetricsModule,
     HealthModule,
     AuthModule,
     UsersModule,
     ProofsModule,
     StellarModule,
-    PrismaModule
-
+    PrismaModule,
   ],
 })
 export class AppModule {}

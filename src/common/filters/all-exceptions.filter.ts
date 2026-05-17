@@ -17,8 +17,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
 
+    const requestId = request.headers['x-request-id'] || (request as any).requestId || 'unknown';
     let status: number;
     let message: string;
+    let stack: string | undefined;
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
@@ -27,9 +29,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
         typeof exceptionResponse === 'string'
           ? exceptionResponse
           : (exceptionResponse as any).message || exception.message;
+      stack = exception.stack;
     } else {
       status = HttpStatus.INTERNAL_SERVER_ERROR;
       message = 'Internal server error';
+      stack = exception instanceof Error ? exception.stack : undefined;
     }
 
     const errorResponse = {
@@ -38,11 +42,19 @@ export class AllExceptionsFilter implements ExceptionFilter {
       path: request.url,
       method: request.method,
       message,
+      requestId,
     };
 
     this.logger.error(
-      `${request.method} ${request.url}`,
-      JSON.stringify(errorResponse),
+      JSON.stringify({
+        event: 'exception',
+        requestId,
+        method: request.method,
+        path: request.url,
+        status,
+        message,
+        stack,
+      }),
     );
 
     response.status(status).json(errorResponse);

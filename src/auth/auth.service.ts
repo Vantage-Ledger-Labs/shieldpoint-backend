@@ -63,26 +63,20 @@ export class AuthService {
 
     const accessToken =
       await this.jwtService.signAsync(
-        payload,
+        payload as Record<string, unknown>,
         {
-          secret:
-            process.env.JWT_ACCESS_SECRET,
-
-          expiresIn:
-            process.env.JWT_ACCESS_EXPIRES_IN,
-        },
+          secret: process.env.JWT_ACCESS_SECRET as string,
+          expiresIn: (process.env.JWT_ACCESS_EXPIRES_IN as string) || '3600s',
+        } as any,
       );
 
     const refreshToken =
       await this.jwtService.signAsync(
-        payload,
+        payload as Record<string, unknown>,
         {
-          secret:
-            process.env.JWT_REFRESH_SECRET,
-
-          expiresIn:
-            process.env.JWT_REFRESH_EXPIRES_IN,
-        },
+          secret: process.env.JWT_REFRESH_SECRET as string,
+          expiresIn: (process.env.JWT_REFRESH_EXPIRES_IN as string) || '7d',
+        } as any,
       );
 
     const hashedRefreshToken =

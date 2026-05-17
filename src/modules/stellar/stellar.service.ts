@@ -9,22 +9,27 @@ import { ConfigService } from '@nestjs/config';
 import * as StellarSdk from 'stellar-sdk';
 import { Server as RpcServer } from 'stellar-sdk/rpc';
 import * as StellarRpc from 'stellar-sdk/rpc';
+import { MetricsService } from '../../common/metrics/metrics.service';
 
 @Injectable()
 export class StellarService {
   private readonly logger = new Logger(StellarService.name);
   private horizonServer: any;
   private rpcServer: any;
+  private readonly rpcUrl: string;
   private readonly networkPassphrase: string;
   private readonly verifierContractId: string;
   private readonly registryContractId: string;
   private readonly signerKeypair?: StellarSdk.Keypair;
 
-  constructor(private configService: ConfigService) {
+  constructor(
+    private configService: ConfigService,
+    private readonly metricsService: MetricsService,
+  ) {
     const network = this.configService.get<string>('STELLAR_NETWORK', 'testnet').toLowerCase();
-    const rpcUrl = this.configService.get<string>('RPC_URL') || this.getDefaultRpcUrl(network);
-    this.horizonServer = new StellarSdk.Horizon.Server(this.getHorizonUrl(rpcUrl));
-    this.rpcServer = new RpcServer(this.getRpcUrl(rpcUrl));
+    this.rpcUrl = this.configService.get<string>('RPC_URL') || this.getDefaultRpcUrl(network);
+    this.horizonServer = new StellarSdk.Horizon.Server(this.getHorizonUrl(this.rpcUrl));
+    this.rpcServer = new RpcServer(this.getRpcUrl(this.rpcUrl));
     this.networkPassphrase = this.getNetworkPassphrase(network);
     this.verifierContractId = this.configService.get<string>('VERIFIER_CONTRACT_ID', '');
     this.registryContractId = this.configService.get<string>('REGISTRY_CONTRACT_ID', '');
@@ -104,6 +109,39 @@ export class StellarService {
     return this.invokeContract(this.registryContractId, 'register', [proofId]);
   }
 
+  async checkRpcHealth(): Promise<{ status: string; network: string; rpcUrl: string }> {
+    try {
+      const response = await fetch(this.rpcUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'status',
+          params: [],
+        }),
+      });
+
+      const body = await response.json();
+
+      if (!response.ok || !body.result) {
+        throw new Error('Unexpected Stellar RPC response');
+      }
+
+      return {
+        status: 'up',
+        network: this.networkPassphrase,
+        rpcUrl: this.rpcUrl,
+      };
+    } catch (error) {
+      throw new InternalServerErrorException(
+        `Stellar RPC health check failed: ${(error as Error).message}`,
+      );
+    }
+  }
+
   private async submitTransactionWithRetry(
     xdr: string,
     maxAttempts: number,
@@ -127,6 +165,7 @@ export class StellarService {
         return result;
       } catch (error) {
         lastError = error;
+        this.metricsService.recordStellarRpcError();
         this.logger.error(`Stellar transaction failed on attempt ${attempt}`, error);
 
         if (attempt >= maxAttempts) {
