@@ -1,7 +1,14 @@
-import { Injectable, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+  NotFoundException,
+  GatewayTimeoutException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as StellarSdk from 'stellar-sdk';
 import { Server as RpcServer } from 'stellar-sdk/rpc';
+import * as StellarRpc from 'stellar-sdk/rpc';
 
 @Injectable()
 export class StellarService {
@@ -65,7 +72,28 @@ export class StellarService {
       throw new InternalServerErrorException('VERIFIER_CONTRACT_ID is not configured');
     }
 
-    return this.invokeContract(this.verifierContractId, 'verify', [proofData]);
+    return this.invokeContract(this.verifierContractId, 'verify_proof', [proofData]);
+  }
+
+  async waitForTransactionConfirmation(hash: string, attempts = 5): Promise<any> {
+    const transactionInfo = await this.rpcServer.pollTransaction(hash, {
+      attempts,
+      sleepStrategy: StellarRpc.BasicSleepStrategy,
+    });
+
+    if (transactionInfo.status === StellarRpc.Api.GetTransactionStatus.NOT_FOUND) {
+      throw new GatewayTimeoutException(
+        `Transaction ${hash} was not found after polling RPC for ${attempts} attempts`,
+      );
+    }
+
+    if (transactionInfo.status === StellarRpc.Api.GetTransactionStatus.FAILED) {
+      throw new InternalServerErrorException(
+        `Transaction ${hash} executed but failed on chain`,
+      );
+    }
+
+    return transactionInfo;
   }
 
   async invokeRegistryContract(proofId: string): Promise<{ hash: string; ledger: number }> {
