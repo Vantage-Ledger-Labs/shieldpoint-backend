@@ -1,43 +1,62 @@
-import { Injectable } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, FindOptionsWhere } from 'typeorm';
+import { randomUUID, createHash } from 'crypto';
 import { Proof, ProofStatus } from './entities/proof.entity';
-import { GetProofsQueryDto, ProofDto, ProofsListResponseDto } from './dto/proofs.dto';
+import {
+  GetProofsQueryDto,
+  ProofDto,
+  ProofsListResponseDto,
+  GenerateProofResponseDto,
+} from './dto/proofs.dto';
 import { ConfigService } from '@nestjs/config';
+import { UsersService } from '../users/users.service';
+import { StellarService } from '../stellar/stellar.service';
+import { ProofGenerationQueueService } from './proof-generation.queue';
+
+interface MockProofResult {
+  proofData: string;
+  publicInputs: Record<string, any>;
+  commitmentHash: string;
+  assetCode: string;
+  threshold: number;
+  balance: number;
+  userId: string;
+  proofId: string;
+}
 
 @Injectable()
 export class ProofsService {
   constructor(
     @InjectRepository(Proof)
-    private proofRepository: Repository<Proof>,
-    private configService: ConfigService,
+    private readonly proofRepository: Repository<Proof>,
+    private readonly configService: ConfigService,
+    private readonly usersService: UsersService,
+    private readonly stellarService: StellarService,
+    private readonly proofQueueService: ProofGenerationQueueService,
   ) {}
 
-  /**
-   * Get user's proofs with pagination, filtering, and sorting
-   * Sorted by latest first (createdAt DESC)
-   * Response time optimized with database indexes on (user_id, created_at)
-   */
   async getUserProofs(
     userId: string,
     query: GetProofsQueryDto,
   ): Promise<ProofsListResponseDto> {
-    // Parse pagination parameters
     const page = Math.max(query.page || 1, 1);
     const limit = Math.max(Math.min(query.limit || 20, 100), 1);
     const skip = (page - 1) * limit;
 
-    // Build where clause for filtering
     const where: FindOptionsWhere<Proof> = {
       userId,
     };
 
-    // Filter by status if provided
     if (query.status) {
       where.status = query.status;
     }
 
-    // Filter by date range if provided
     if (query.fromDate || query.toDate) {
       const fromDate = query.fromDate ? new Date(query.fromDate) : new Date('1970-01-01');
       const toDate = query.toDate ? new Date(query.toDate) : new Date();
@@ -45,8 +64,6 @@ export class ProofsService {
       where.createdAt = Between(fromDate, toDate);
     }
 
-    // Execute query with sorting and pagination
-    // Using index on (user_id, created_at DESC) for optimal performance
     const [proofs, total] = await this.proofRepository.findAndCount({
       where,
       order: {
@@ -56,41 +73,71 @@ export class ProofsService {
       take: limit,
     });
 
-    // Transform to DTOs with computed fields
-    const data = proofs.map((proof) => this.transformToDto(proof));
-
-    const totalPages = Math.ceil(total / limit);
-
     return {
-      data,
+      data: proofs.map((proof) => this.transformToDto(proof)),
       total,
       page,
-      totalPages,
+      totalPages: Math.ceil(total / limit),
     };
   }
 
-  /**
-   * Get a single proof by ID with full details
-   * Includes verification transaction hash and explorer link
-   */
   async getProofById(proofId: string, userId: string): Promise<ProofDto> {
     const proof = await this.proofRepository.findOne({
       where: {
         id: proofId,
-        userId, // Ensure user can only access their own proofs
+        userId,
       },
     });
 
-    if (!proof) {
-      return null;
-    }
-
-    return this.transformToDto(proof);
+    return proof ? this.transformToDto(proof) : null;
   }
 
-  /**
-   * Create a new proof record
-   */
+  async generateBalanceProof(
+    userId: string,
+    assetCode: string,
+    threshold: number,
+  ): Promise<GenerateProofResponseDto> {
+    const user = await this.usersService.getUserById(userId);
+    if (!user.stellarAccountId) {
+      throw new BadRequestException('User Stellar account is not configured');
+    }
+
+    let balance: number;
+    try {
+      balance = await this.stellarService.getBalance(user.stellarAccountId, assetCode);
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      throw new InternalServerErrorException(error?.message || 'Failed to fetch Stellar balance');
+    }
+
+    if (balance < threshold) {
+      throw new BadRequestException(
+        `Balance ${balance} is below the requested threshold of ${threshold}`,
+      );
+    }
+
+    const proofPayload = this.createMockProof(userId, assetCode, threshold, balance);
+    const proof = await this.saveProofRecord(userId, proofPayload);
+
+    await this.proofQueueService.enqueueProofJob({
+      proofId: proof.id,
+      userId,
+      assetCode,
+      threshold,
+      balance,
+      commitmentHash: proofPayload.commitmentHash,
+    });
+
+    return {
+      proofId: proof.id,
+      proofData: proofPayload.proofData,
+      publicInputs: proofPayload.publicInputs,
+      commitmentHash: proofPayload.commitmentHash,
+    };
+  }
+
   async createProof(
     userId: string,
     proofData: string,
@@ -107,9 +154,6 @@ export class ProofsService {
     return this.transformToDto(savedProof);
   }
 
-  /**
-   * Update proof status and transaction hash when verified
-   */
   async updateProofVerified(
     proofId: string,
     transactionHash: string,
@@ -135,9 +179,6 @@ export class ProofsService {
     return this.transformToDto(updatedProof);
   }
 
-  /**
-   * Mark proof as failed with error message
-   */
   async updateProofFailed(
     proofId: string,
     errorMessage: string,
@@ -157,9 +198,61 @@ export class ProofsService {
     return this.transformToDto(updatedProof);
   }
 
-  /**
-   * Transform Proof entity to DTO with computed fields
-   */
+  private async saveProofRecord(userId: string, proofPayload: MockProofResult): Promise<Proof> {
+    const proof = this.proofRepository.create({
+      userId,
+      proofData: proofPayload.proofData,
+      status: ProofStatus.GENERATED,
+      metadata: {
+        assetCode: proofPayload.assetCode,
+        threshold: proofPayload.threshold,
+        balance: proofPayload.balance,
+        publicInputs: proofPayload.publicInputs,
+        commitmentHash: proofPayload.commitmentHash,
+      },
+    });
+
+    return await this.proofRepository.save(proof);
+  }
+
+  private createMockProof(
+    userId: string,
+    assetCode: string,
+    threshold: number,
+    balance: number,
+  ): MockProofResult {
+    const proofId = randomUUID();
+    const publicInputs = {
+      assetCode,
+      threshold,
+      balance,
+    };
+    const commitmentHash = createHash('sha256')
+      .update(`${userId}|${assetCode}|${threshold}|${balance}|${Date.now()}`)
+      .digest('hex');
+
+    const proofData = JSON.stringify({
+      proofId,
+      assetCode,
+      threshold,
+      balance,
+      publicInputs,
+      commitmentHash,
+      createdAt: new Date().toISOString(),
+    });
+
+    return {
+      proofId,
+      proofData,
+      publicInputs,
+      commitmentHash,
+      assetCode,
+      threshold,
+      balance,
+      userId,
+    };
+  }
+
   private transformToDto(proof: Proof): ProofDto {
     const explorerLink = this.getExplorerLink(proof.transactionHash);
 
@@ -178,9 +271,6 @@ export class ProofsService {
     };
   }
 
-  /**
-   * Generate explorer link for Stellar transaction
-   */
   private getExplorerLink(transactionHash: string | null): string | null {
     if (!transactionHash) {
       return null;

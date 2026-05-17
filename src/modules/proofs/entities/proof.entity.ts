@@ -11,6 +11,7 @@ import {
 
 export enum ProofStatus {
   PENDING = 'pending',
+  GENERATED = 'generated',
   VERIFIED = 'verified',
   FAILED = 'failed',
 }

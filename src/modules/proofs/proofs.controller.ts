@@ -1,8 +1,11 @@
 import {
   Controller,
   Get,
+  Post,
   Param,
   Query,
+  Body,
+  HttpCode,
   UnauthorizedException,
   NotFoundException,
   BadRequestException,
@@ -12,13 +15,18 @@ import {
   ApiTags,
   ApiOperation,
   ApiResponse,
-  ApiSecurity,
   ApiBearerAuth,
   ApiParam,
   ApiQuery,
 } from '@nestjs/swagger';
 import { ProofsService } from './proofs.service';
-import { GetProofsQueryDto, ProofDto, ProofsListResponseDto } from './dto/proofs.dto';
+import {
+  GetProofsQueryDto,
+  ProofDto,
+  ProofsListResponseDto,
+  GenerateBalanceProofDto,
+  GenerateProofResponseDto,
+} from './dto/proofs.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 
 @ApiTags('Proofs')
@@ -143,6 +151,45 @@ export class ProofsController {
         throw error;
       }
       throw new BadRequestException('Invalid proof ID format');
+    }
+  }
+
+  @Post('generate')
+  @ApiOperation({
+    summary: 'Generate a balance proof for authenticated user',
+    description:
+      'Create a zero-knowledge balance proof for the authenticated user if their Stellar account balance ' +
+      'meets the requested threshold. The endpoint is protected by JWT and returns proof metadata.',
+  })
+  @HttpCode(201)
+  @ApiResponse({
+    status: 201,
+    description: 'Proof generated successfully',
+    type: GenerateProofResponseDto,
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or missing token',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad request - Invalid proof generation request',
+  })
+  async generateProof(
+    @Body() body: GenerateBalanceProofDto,
+    @Headers('authorization') authHeader: string,
+  ): Promise<GenerateProofResponseDto> {
+    try {
+      const userId = this.jwtAuthGuard.extractUserId(authHeader);
+      return await this.proofsService.generateBalanceProof(userId, body.assetCode, body.threshold);
+    } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      throw new BadRequestException(error?.message || 'Invalid proof generation request');
     }
   }
 }
