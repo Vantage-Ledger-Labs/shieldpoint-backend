@@ -92,3 +92,29 @@ export class ProofsListResponseDto {
   @ApiProperty({ description: 'Total number of pages' })
   totalPages: number;
 }
+
+export class GenerateBalanceProofDto {
+  @ApiProperty({ description: 'Asset code to prove balance for', example: 'XLM' })
+  @IsString()
+  assetCode: string;
+
+  @ApiProperty({ description: 'Minimum threshold required for the proof', example: 100 })
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  threshold: number;
+}
+
+export class GenerateProofResponseDto {
+  @ApiProperty({ description: 'Proof ID' })
+  proofId: string;
+
+  @ApiProperty({ description: 'Generated proof payload' })
+  proofData: string;
+
+  @ApiProperty({ description: 'Public inputs used by the proof generator' })
+  publicInputs: Record<string, any>;
+
+  @ApiProperty({ description: 'Commitment hash for the proof' })
+  commitmentHash: string;
+}
