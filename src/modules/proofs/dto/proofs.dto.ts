@@ -1,4 +1,14 @@
-import { IsEnum, IsOptional, IsDateString, Min, Max, IsNumber, IsString } from 'class-validator';
+import {
+  IsEnum,
+  IsOptional,
+  IsDateString,
+  Min,
+  Max,
+  IsNumber,
+  IsString,
+  Matches,
+  IsUrl,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { ProofStatus } from '../entities/proof.entity';
 import { ApiPropertyOptional, ApiProperty } from '@nestjs/swagger';
@@ -69,6 +79,12 @@ export class ProofDto {
   @ApiProperty({ description: 'Metadata' })
   metadata: Record<string, any> | null;
 
+  @ApiPropertyOptional({ description: 'Webhook callback URL' })
+  webhook_url?: string | null;
+
+  @ApiPropertyOptional({ description: 'When webhook was successfully delivered' })
+  webhook_sent_at?: Date | null;
+
   @ApiProperty({ description: 'Proof created at' })
   createdAt: Date;
 
@@ -105,8 +121,14 @@ export class ProofsListResponseDto {
 }
 
 export class GenerateBalanceProofDto {
-  @ApiProperty({ description: 'Asset code to prove balance for', example: 'XLM' })
+  @ApiProperty({
+    description: 'Asset code to prove balance for (4-12 uppercase alphanumeric characters)',
+    example: 'USDC',
+  })
   @IsString()
+  @Matches(/^[A-Z0-9]{4,12}$/, {
+    message: 'Asset code must be between 4 and 12 uppercase alphanumeric characters',
+  })
   assetCode: string;
 
   @ApiProperty({ description: 'Minimum threshold required for the proof', example: 100 })
@@ -114,6 +136,17 @@ export class GenerateBalanceProofDto {
   @IsNumber()
   @Min(0)
   threshold: number;
+
+  @ApiPropertyOptional({
+    description: 'Optional callback URL for webhook notification upon verification',
+    example: 'https://example.com/api/webhook',
+  })
+  @IsOptional()
+  @IsUrl(
+    { protocols: ['http', 'https'], require_protocol: true, require_tld: false },
+    { message: 'webhook_url must be a valid HTTP or HTTPS URL' },
+  )
+  webhook_url?: string;
 }
 
 export class GenerateProofResponseDto {
@@ -128,4 +161,47 @@ export class GenerateProofResponseDto {
 
   @ApiProperty({ description: 'Commitment hash for the proof' })
   commitmentHash: string;
+}
+
+export class WebhookDeliveryAttemptDto {
+  @ApiProperty({ description: 'Attempt number' })
+  attemptNumber: number;
+
+  @ApiProperty({ description: 'Timestamp of the delivery attempt' })
+  timestamp: string;
+
+  @ApiProperty({ description: 'Whether the attempt succeeded' })
+  success: boolean;
+
+  @ApiPropertyOptional({ description: 'HTTP response status code' })
+  statusCode?: number;
+
+  @ApiPropertyOptional({ description: 'Error message if attempt failed' })
+  error?: string;
+}
+
+export class WebhookStatusResponseDto {
+  @ApiProperty({ description: 'Proof ID' })
+  proofId: string;
+
+  @ApiPropertyOptional({ description: 'Webhook callback URL' })
+  webhook_url: string | null;
+
+  @ApiPropertyOptional({ description: 'When webhook was successfully delivered' })
+  webhook_sent_at: Date | null;
+
+  @ApiProperty({
+    description: 'Delivery status',
+    enum: ['pending', 'delivered', 'failed', 'not_configured'],
+  })
+  status: 'pending' | 'delivered' | 'failed' | 'not_configured';
+
+  @ApiProperty({ description: 'Number of delivery attempts made' })
+  attempts: number;
+
+  @ApiProperty({
+    description: 'Detailed delivery attempts history',
+    type: [WebhookDeliveryAttemptDto],
+  })
+  deliveryAttempts: WebhookDeliveryAttemptDto[];
 }
