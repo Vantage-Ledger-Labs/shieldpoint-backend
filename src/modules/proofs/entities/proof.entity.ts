@@ -58,4 +58,24 @@ export class Proof {
 
   @Column('timestamp', { nullable: true })
   expiresAt: Date | null;
+
+  @Column('text', { nullable: true })
+  webhook_url: string | null;
+
+  @Column('timestamp', { nullable: true })
+  webhook_sent_at: Date | null;
+
+  get webhookUrl(): string | null {
+    return this.webhook_url;
+  }
+  set webhookUrl(val: string | null) {
+    this.webhook_url = val;
+  }
+
+  get webhookSentAt(): Date | null {
+    return this.webhook_sent_at;
+  }
+  set webhookSentAt(val: Date | null) {
+    this.webhook_sent_at = val;
+  }
 }

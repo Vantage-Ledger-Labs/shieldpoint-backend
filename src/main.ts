@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
+import helmet from 'helmet';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { ConfigService } from '@nestjs/config';
@@ -37,6 +38,9 @@ async function bootstrap() {
   // Global prefix for API versioning
   app.setGlobalPrefix('api/v1');
 
+  // Security headers with Helmet (Issue #9)
+  app.use(helmet());
+
   // Request ID tracking
   app.use(requestIdMiddleware);
 
@@ -55,8 +59,19 @@ async function bootstrap() {
   // Global interceptor for logging and metrics
   app.useGlobalInterceptors(new LoggingInterceptor(metricsService));
 
-  // Enable CORS
-  app.enableCors();
+  // Enable CORS with configurable allowed origins (Issue #9)
+  const allowedOriginsEnv =
+    configService.get<string>('CORS_ALLOWED_ORIGINS') || configService.get<string>('ALLOWED_ORIGINS');
+  const allowedOrigins = allowedOriginsEnv
+    ? allowedOriginsEnv.split(',').map((origin) => origin.trim())
+    : '*';
+
+  app.enableCors({
+    origin: allowedOrigins,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Request-Id'],
+    credentials: true,
+  });
 
   // Swagger/OpenAPI Documentation
   const config = new DocumentBuilder()
